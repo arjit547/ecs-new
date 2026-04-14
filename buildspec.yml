@@ -1,6 +1,46 @@
+# version: 0.2
+
+# env:
+#   variables:
+#     AWS_DEFAULT_REGION: us-east-1
+#     IMAGE_REPO_NAME: k8
+#     ACCOUNT_ID: 574128098491
+#     CLUSTER_NAME: terraform-eks-arjit
+
+# phases:
+#   pre_build:
+#     commands:
+#       - echo "Logging into ECR"
+#       - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+
+#   build:
+#     commands:
+#       - echo "Building Docker Image"
+#       - docker build -t $IMAGE_REPO_NAME .
+
+#   post_build:
+#     commands:
+#       - echo "Tagging Image"
+#       - docker tag $IMAGE_REPO_NAME:latest $ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:latest
+
+#       - echo "Pushing Image"
+#       - docker push $ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:latest
+
+#       - echo "Updating kubeconfig"
+#       - aws eks update-kubeconfig --region $AWS_DEFAULT_REGION --name $CLUSTER_NAME
+
+#       - echo "Applying Kubernetes manifests"
+#       - kubectl apply -f k8s/manifest.yaml
+
+
+
 version: 0.2
 
 env:
+  secrets-manager:
+    DOCKER_USERNAME: "docker-creds:DOCKER_USERNAME"
+    DOCKER_PASSWORD: "docker-creds:DOCKER_PASSWORD"
+
   variables:
     AWS_DEFAULT_REGION: us-east-1
     IMAGE_REPO_NAME: k8
@@ -10,7 +50,10 @@ env:
 phases:
   pre_build:
     commands:
-      - echo "Logging into ECR"
+      - echo "Login to DockerHub using Secrets Manager"
+      - echo $DOCKER_PASSWORD | docker login --username $DOCKER_USERNAME --password-stdin
+
+      - echo "Login to ECR"
       - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
 
   build:
@@ -31,3 +74,6 @@ phases:
 
       - echo "Applying Kubernetes manifests"
       - kubectl apply -f k8s/manifest.yaml
+
+      - echo "Restarting deployment"
+      - kubectl rollout restart deployment deployment-20 -n arjit-2098
