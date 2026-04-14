@@ -32,15 +32,13 @@
 #       - echo "Applying Kubernetes manifests"
 #       - kubectl apply -f k8s/manifest.yaml
 
+#       - echo "Restarting deployment"
+#       - kubectl rollout restart deployment deployment-20 -n arjit-2098
 
 
 version: 0.2
 
 env:
-  secrets-manager:
-    DOCKER_USERNAME: "docker-creds:DOCKER_USERNAME"
-    DOCKER_PASSWORD: "docker-creds:DOCKER_PASSWORD"
-
   variables:
     AWS_DEFAULT_REGION: us-east-1
     IMAGE_REPO_NAME: k8
@@ -50,30 +48,29 @@ env:
 phases:
   pre_build:
     commands:
-      - echo "Login to DockerHub using Secrets Manager"
-      - echo $DOCKER_PASSWORD | docker login --username $DOCKER_USERNAME --password-stdin
-
       - echo "Login to ECR"
+      - ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
       - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+
+      - IMAGE_TAG=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
 
   build:
     commands:
       - echo "Building Docker Image"
-      - docker build -t $IMAGE_REPO_NAME .
+      - docker build -t $IMAGE_REPO_NAME:$IMAGE_TAG .
+
+      - docker tag $IMAGE_REPO_NAME:$IMAGE_TAG $ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$IMAGE_TAG
 
   post_build:
     commands:
-      - echo "Tagging Image"
-      - docker tag $IMAGE_REPO_NAME:latest $ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:latest
-
       - echo "Pushing Image"
-      - docker push $ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:latest
+      - docker push $ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$IMAGE_TAG
 
-      - echo "Updating kubeconfig"
+      - echo "Update kubeconfig"
       - aws eks update-kubeconfig --region $AWS_DEFAULT_REGION --name $CLUSTER_NAME
 
-      - echo "Applying Kubernetes manifests"
-      - kubectl apply -f k8s/manifest.yaml
+      - echo "Update manifest"
+      - sed -i "s|:latest|:$IMAGE_TAG|g" k8s/manifest.yaml
 
-      - echo "Restarting deployment"
-      - kubectl rollout restart deployment deployment-20 -n arjit-2098
+      - echo "Deploy"
+      - kubectl apply -f k8s/manifest.yaml
